@@ -1,0 +1,140 @@
+@startuml
+' --- НАСТРОЙКИ ОФОРМЛЕНИЯ (Fix Layout) ---
+skinparam backgroundColor white
+skinparam handwritten false
+skinparam shadow false
+skinparam defaultFontName "Segoe UI"
+skinparam defaultFontSize 12
+skinparam roundCorner 8
+
+' ВАЖНО: Делаем линии прямыми и увеличиваем отступы, чтобы избежать наложений
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 80
+
+' Настройки цветов
+skinparam component {
+    BackgroundColor white
+    BorderColor #00509D
+    ArrowColor #333333
+    FontColor black
+    Style rectangle
+}
+
+skinparam database {
+    BackgroundColor #FFF4E5
+    BorderColor #FF6600
+}
+
+skinparam actor {
+    BackgroundColor #E5F2FF
+    BorderColor #00509D
+}
+
+skinparam package {
+    BackgroundColor #F5F7FA
+    BorderColor #A0A0A0
+    FontColor #333333
+}
+
+skinparam note {
+    BackgroundColor #FEF9E7
+    BorderColor #D4AC0D
+    FontSize 10
+}
+
+title **Карта знаний: Трансформация данных в управленческие решения**
+left to right direction
+
+' --- СЛОЙ 1: ИСТОЧНИКИ ДАННЫХ ---
+package "1. Источники данных" as Sources {
+    ' Используем together, чтобы эти блоки стояли ровным столбиком
+    together {
+        component "1C:Предприятие" as 1C {
+            rectangle "Проводки"
+            rectangle "Склад" 
+        }
+        
+        component "Отраслевая CRM" as CRM {
+            rectangle "Клиенты"
+            rectangle "Заказы"
+        }
+        
+        component "Файлы (Excel)" as Files {
+            rectangle "Планы"
+        }
+    }
+}
+
+' Выравниваем источники по вертикали скрытыми линиями
+1C -[hidden]- CRM
+CRM -[hidden]- Files
+
+' --- СЛОЙ 2: ETL ---
+package "2. Обработка (ETL)" as ETL {
+    component "Оркестратор (n8n)" as Engine {
+        rectangle "API Connector" as API
+        rectangle "Data Quality" as DQC #FFCCCC
+        
+        API -right-> DQC
+    }
+    note bottom of DQC
+      **Контроль:**
+      - Проверка дублей
+      - Типы данных
+    end note
+}
+
+' --- СЛОЙ 3: ХРАНЕНИЕ ---
+package "3. DWH (ClickHouse)" as Storage {
+    database "ClickHouse Cluster" as CH {
+        rectangle "Raw Layer" as Raw
+        rectangle "Витрины (Prod)" as Prod
+        
+        Raw -right-> Prod : SQL
+    }
+}
+
+' --- СЛОЙ 4: BI ---
+package "4. Аналитика" as BI {
+    component "Yandex DataLens" as DL {
+        rectangle "Датасеты"
+        rectangle "RLS (Security)"
+    }
+}
+
+' --- СЛОЙ 5: ПОЛЬЗОВАТЕЛИ ---
+package "5. Бизнес-заказчики" as Users {
+    actor "Ген. Директор" as CEO
+    actor "РОП" as ROP
+    actor "Менеджеры" as Staff
+}
+
+' --- СВЯЗИ (Четко задаем направления) ---
+
+' 1. Источники -> ETL
+' Сводим все в API коннектор
+1C -right-> API : <color:blue>API 1C</color>
+CRM -right-> API : <color:blue>API CRM</color>
+Files -right-> API : <color:green>Парсинг</color>
+
+' 2. ETL -> Storage
+DQC -right-> Raw : <color:red>Batch Insert</color>
+
+' 3. Storage -> BI
+Prod -right-> [Датасеты] : <color:orange>Native Protocol</color>
+[Датасеты] -[hidden]down- [RLS (Security)]
+
+' 4. BI -> Users
+[RLS (Security)] -right-> CEO
+[RLS (Security)] -right-> ROP
+[RLS (Security)] -right-> Staff
+
+' Легенда
+legend right
+    |Цвет| Значение|
+    |<#FFCCCC>| Quality Check|
+    |<#FFF4E5>| База Данных|
+endlegend
+
+@enduml
