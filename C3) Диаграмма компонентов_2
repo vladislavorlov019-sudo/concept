@@ -1,0 +1,62 @@
+@startuml C3_Components_DWH
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+' НАСТРОЙКИ
+skinparam backgroundColor white
+LAYOUT_LEFT_RIGHT()
+LAYOUT_WITH_LEGEND()
+title Диаграмма компонентов (C3): Структура слоев данных ClickHouse (DWH)
+
+' --- ВНЕШНИЕ СИСТЕМЫ ---
+Container(etl_n8n, "ETL Оркестратор", "n8n", "Загружает сырые батчи данных")
+Container(bi_datalens, "BI Система", "Yandex DataLens", "Читает витрины данных")
+
+' --- КОНТЕЙНЕР CLICKHOUSE ---
+Container_Boundary(dwh_container, "Аналитическое хранилище (ClickHouse)") {
+
+    ' СЛОЙ 1: BRONZE (RAW)
+    Boundary(layer_raw, "L1: Raw Layer (Bronze)", "Сырые данные") {
+        ComponentDb(tbl_raw_logs, "raw_import_log", "Engine: MergeTree", "Таблица для вставки 'грязных' JSON/CSV. Хранит историю загрузок без обработки.")
+        ComponentDb(tbl_buffer, "buffer_incoming", "Engine: Buffer", "RAM-буфер для сглаживания пиков записи (опционально).")
+    }
+
+    ' СЛОЙ 2: SILVER (CORE)
+    Boundary(layer_core, "L2: Core Layer (Silver)", "Нормализованная схема 'Звезда'") {
+        ComponentDb(tbl_facts, "fact_sales / fact_stock", "Engine: ReplicatedMergeTree", "Таблицы фактов. Очищенные транзакции, дедупликация.")
+        ComponentDb(tbl_dims, "dim_clients / dim_products", "Engine: ReplacingMergeTree", "Справочники (Измерения). Хранят актуальные состояния объектов.")
+        
+        Component(dict_memory, "Dictionaries", "In-Memory", "Загруженные в память словари для быстрого маппинга ID -> Название.")
+    }
+
+    ' ТРАНСФОРМАЦИЯ (SQL Logic)
+    Component(mv_logic, "Materialized Views (Triggers)", "SQL Trigger", "Автоматически перекладывает и агрегирует данные при вставке из L1 в L2 и L3.")
+
+    ' СЛОЙ 3: GOLD (MARTS)
+    Boundary(layer_marts, "L3: Data Marts (Gold)", "Витрины для BI") {
+        ComponentDb(view_sales_report, "dm_sales_report", "Engine: AggregatingMergeTree", "Широкая плоская таблица. Заранее предрассчитанные суммы продаж по дням и категориям.")
+        ComponentDb(view_kpi, "dm_manager_kpi", "Engine: SummingMergeTree", "Готовая таблица для расчета бонусов.")
+    }
+}
+
+' --- СВЯЗИ ---
+
+' 1. Вставка
+Rel(etl_n8n, tbl_buffer, "INSERT (JSON)", "HTTP")
+Rel(tbl_buffer, tbl_raw_logs, "Flush to Disk", "Auto")
+
+' 2. Трансформация L1 -> L2
+Rel(tbl_raw_logs, mv_logic, "Trigger on Insert")
+Rel(mv_logic, tbl_facts, "ETL SQL (Parse & Clean)")
+Rel(mv_logic, tbl_dims, "Update State")
+Rel(tbl_facts, dict_memory, "JOIN (Enrichment)")
+
+' 3. Агрегация L2 -> L3
+Rel(tbl_facts, mv_logic, "Trigger on Insert")
+Rel(mv_logic, view_sales_report, "GROUP BY & SUM")
+Rel(mv_logic, view_kpi, "Calculate KPI")
+
+' 4. Чтение
+Rel(bi_datalens, view_sales_report, "SELECT (Fast Read)", "Native Proto")
+Rel(bi_datalens, view_kpi, "SELECT (Fast Read)", "Native Proto")
+
+@enduml
