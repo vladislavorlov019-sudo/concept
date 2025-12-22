@@ -1,0 +1,67 @@
+@startuml C3_Components_ETL
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+' НАСТРОЙКИ
+skinparam backgroundColor white
+LAYOUT_WITH_LEGEND()
+title Диаграмма компонентов (C3): Внутренняя структура ETL-оркестратора (n8n)
+
+' --- ВНЕШНИЕ ИСТОЧНИКИ ---
+System_Ext(source_1c, "1С:Предприятие", "OData API")
+System_Ext(source_crm, "CRM Система", "REST API")
+System_Ext(source_files, "Excel Файлы", "SMB Share")
+System_Ext(mail, "Mail Server", "SMTP")
+
+' --- ПРИЕМНИК ДАННЫХ (Контейнер БД) ---
+ContainerDb(db_clickhouse, "ClickHouse Cluster", "Docker", "Хранилище данных")
+
+' --- КОНТЕЙНЕР N8N (Детализация) ---
+Container_Boundary(n8n_container, "ETL Оркестратор (n8n)") {
+
+    ' 1. Слой Триггеров (Controllers)
+    Component(trigger_cron, "Schedule Trigger", "n8n Trigger Node", "Запускает потоки по расписанию (Cron) для API источников.")
+    Component(trigger_watcher, "File Watcher", "n8n Trigger Node", "Следит за появлением новых файлов в папке планов.")
+
+    ' 2. Слой Адаптеров (Connectors)
+    Component(connector_api, "Universal API Connector", "HTTP Request Node", "Инкапсулирует логику авторизации (Bearer/Basic) и пагинации.")
+    Component(connector_xls, "Excel Parser", "Spreadsheet File Node", "Читает бинарные xlsx файлы и преобразует их в JSON.")
+
+    ' 3. Слой Логики (Business Logic)
+    Component(sanitizer, "Data Sanitizer", "Function Item (JS)", "Очистка строк, приведение дат к ISO-8601, удаление тех. символов.")
+    Component(validator, "Data Quality Firewall", "If/Switch Node + Schema Validation", "Проверяет типы данных, обязательные поля и бизнес-правила (Цена > 0).")
+    Component(mapper, "Model Mapper (MDM)", "Set/Map Node", "Приведение справочников к эталону. Токенизация названий товаров.")
+
+    ' 4. Слой Загрузки (Loaders)
+    Component(loader, "Batch Loader", "ClickHouse Node", "Формирует пакеты (Batch) и выполняет INSERT в таблицы Raw Layer.")
+
+    ' 5. Обработка ошибок
+    Component(error_handler, "Error Handler", "Error Trigger Node", "Перехватывает исключения и непрошедшие валидацию данные.")
+}
+
+' --- СВЯЗИ ---
+
+' Триггеры запускают процесс
+Rel(trigger_cron, connector_api, "Инициирует выгрузку")
+Rel(trigger_watcher, connector_xls, "Передает файл на чтение")
+
+' Чтение из источников
+Rel(connector_api, source_1c, "GET /odata", "HTTPS")
+Rel(connector_api, source_crm, "GET /api/v1", "HTTPS")
+Rel(connector_xls, source_files, "Read File", "SMB")
+
+' Поток обработки (Pipeline)
+Rel(connector_api, sanitizer, "JSON Array")
+Rel(connector_xls, sanitizer, "JSON Array")
+
+Rel(sanitizer, mapper, "Очищенные данные")
+Rel(mapper, validator, "Нормализованные данные")
+
+' Ветвление валидации
+Rel(validator, loader, "Valid Data", "Flow")
+Rel(validator, error_handler, "Invalid Data / Schema Mismatch", "Flow")
+
+' Загрузка и Алерт
+Rel(loader, db_clickhouse, "INSERT INTO raw_table", "HTTP")
+Rel(error_handler, mail, "Отправка алерта с логами", "SMTP")
+
+@enduml
