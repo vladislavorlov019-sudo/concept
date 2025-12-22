@@ -1,0 +1,60 @@
+@startuml C2_Containers
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+' --- НАСТРОЙКИ ОФОРМЛЕНИЯ ---
+skinparam backgroundColor white
+LAYOUT_LEFT_RIGHT()
+LAYOUT_WITH_LEGEND()
+
+title Диаграмма контейнеров (C2): Архитектура Единой системы аналитической отчетности
+
+' --- ПОЛЬЗОВАТЕЛИ ---
+Person(top_management, "Высшее руководство", "Стратегический анализ")
+Person(rop, "РОП", "Оперативное управление")
+Person(manager, "Менеджер", "Customer Intelligence и KPI")
+
+' --- ВНЕШНИЕ СИСТЕМЫ ---
+System_Ext(erp_1c, "1С:Предприятие", "Источник данных (OData)")
+System_Ext(crm, "Отраслевая CRM", "Источник данных (REST API)")
+System_Ext(file_share, "Файловое хранилище", "Планы и бюджеты (XLSX)")
+System_Ext(mail_server, "Mail Server", "SMTP шлюз")
+
+' --- ГРАНИЦЫ СИСТЕМЫ ---
+System_Boundary(c1, "Единая система аналитической отчетности") {
+
+    ' Облачный сегмент (SaaS)
+    Container(bi_datalens, "BI Платформа", "Yandex DataLens (SaaS)", "Визуализация данных, дашборды, реализация RLS (Row Level Security).", $tags="webApp")
+
+    ' Внутренний защищенный сегмент
+    Boundary(secure_zone, "Защищенный контур (Docker Host / VPS)", "Private Network") {
+        
+        Container(etl_n8n, "ETL Оркестратор", "n8n (Docker)", "Сбор данных, валидация схем, Data Quality Check, управление потоками.", $tags="backend")
+        
+        ContainerDb(dwh_clickhouse, "Аналитическое хранилище", "ClickHouse (Docker)", "Колоночная СУБД. Хранит сырые логи (L1), Звезду (L2) и Витрины (L3).", $tags="db")
+        
+    }
+}
+
+' --- СВЯЗИ ---
+
+' 1. Сбор данных (Ingestion)
+Rel(erp_1c, etl_n8n, "Отдает проводки и справочники", "JSON/XML over HTTP")
+Rel(crm, etl_n8n, "Отдает клиентов и сделки", "JSON over HTTP")
+Rel(file_share, etl_n8n, "Предоставляет файлы", "SMB/Mount")
+
+' 2. Обработка и Хранение
+Rel(etl_n8n, dwh_clickhouse, "Загружает очищенные батчи данных", "ClickHouse HTTP Interface, Bulk Insert")
+Rel(etl_n8n, mail_server, "Отправляет алерты об ошибках качества", "SMTP")
+
+' 3. Визуализация
+Rel(bi_datalens, dwh_clickhouse, "Запрашивает агрегаты для графиков", "HTTPS (Native Protocol), Read-Only")
+
+' 4. Доступ пользователей
+Rel(top_management, bi_datalens, "Просматривает стратегические отчеты", "HTTPS")
+Rel(rop, bi_datalens, "Мониторит команду и операционку", "HTTPS")
+Rel(manager, bi_datalens, "Анализирует клиентов и свой бонус", "HTTPS")
+
+' 5. Обратная связь
+Rel(mail_server, rop, "Уведомляет о сбоях загрузки", "Email")
+
+@enduml
