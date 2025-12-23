@@ -1,0 +1,59 @@
+@startuml D1_UserJourney
+!theme plain
+skinparam backgroundColor white
+skinparam handwritten false
+skinparam linetype ortho
+
+' СТИЛИ
+skinparam swimlane {
+    TitleBackgroundColor #F5F5F5
+    BorderColor #A0A0A0
+}
+skinparam activity {
+    BackgroundColor #E5F2FF
+    BorderColor #00509D
+    ArrowColor #333333
+    FontName "Segoe UI"
+}
+skinparam activityDiamond {
+    BackgroundColor #FEF9E7
+    BorderColor #D4AC0D
+}
+
+title D1: Диаграмма клиентского пути (Сценарий: Утренний контроль РОПа)
+
+|#E5F2FF|User| <b>Руководитель отдела продаж (РОП)</b>
+|#F9F9F9|System| <b>Интерфейс Системы (DataLens)</b>
+
+|User|
+start
+:<b>Шаг 1: Инициация</b>\nПриходит на работу, открывает дашборд\nс планшета или ноутбука;
+
+|System|
+:<b>Отображение Главного экрана (Dashboard)</b>\nЗагрузка виджетов "План/Факт", "Прогноз",\n"Топ отклонений" (за 0.5 сек);
+
+|User|
+:<b>Шаг 2: Сканирование (30-sec rule)</b>\nБеглый взгляд на индикаторы (Светофор);
+
+if (Есть красные зоны?) then (Да, отставание)
+    :<b>Шаг 3: Фокусировка</b>\nКлик по красному индикатору\n(например, "Регион: Урал");
+    
+    |System|
+    :<b>Фильтрация (Drill-down)</b>\nПерестроение всех графиков\nтолько по региону "Урал";
+    
+    |User|
+    :<b>Шаг 4: Детализация</b>\nАнализ таблицы менеджеров;\nПоиск сотрудника с худшей динамикой;
+    
+    |System|
+    :<b>Подсветка аномалий</b>\nВыделение конкретных "зависших"\nсделок или проблемных товаров;
+    
+    |User|
+    :<b>Шаг 5: Действие (Action)</b>\nЗвонок менеджеру или\nпостановка задачи в CRM;
+    
+    stop
+else (Нет, все зеленое)
+    :<b>Альтернативный путь</b>\nПросмотр стратегических трендов;
+    stop
+endif
+
+@enduml
