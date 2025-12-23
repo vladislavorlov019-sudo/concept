@@ -1,0 +1,96 @@
+@startuml C4_Code_DataModel
+!theme plain
+hide circle
+skinparam linetype ortho
+
+' НАСТРОЙКИ ВИЗУАЛА
+skinparam class {
+    BackgroundColor White
+    ArrowColor #333333
+    BorderColor #555555
+    HeaderBackgroundColor #F5F5F5
+}
+
+title Диаграмма кода (C4): Модель данных ClickHouse (Star Schema)
+
+' --- СЛОЙ L1: RAW (Сырые данные) ---
+package "L1: Bronze Layer (Staging)" {
+    class "raw_logs_buffer" as raw <<MergeTree>> {
+        + _timestamp: DateTime
+        + payload_json: String
+        + source_system: LowCardinality(String)
+        --
+        Технический лог входящих пакетов
+    }
+}
+
+' --- СЛОЙ L2: CORE (Нормализованное ядро) ---
+package "L2: Silver Layer (Star Schema)" {
+    
+    class "fact_sales" as fact <<ReplicatedMergeTree>> {
+        + event_date: Date <<PK>>
+        + event_time: DateTime
+        + client_id: UInt64 <<FK>>
+        + product_id: UInt64 <<FK>>
+        + manager_id: UInt64 <<FK>>
+        --
+        # quantity_kg: Float64
+        # revenue_rub: Decimal(18,2)
+        # cost_rub: Decimal(18,2)
+    }
+
+    class "dim_products" as dim_prod <<ReplacingMergeTree>> {
+        + product_id: UInt64 <<PK>>
+        --
+        + name: String
+        + category: LowCardinality(String)
+        + fat_content: Float32
+        + is_active: UInt8
+    }
+
+    class "dim_clients" as dim_client <<ReplacingMergeTree>> {
+        + client_id: UInt64 <<PK>>
+        --
+        + name: String
+        + region: LowCardinality(String)
+        + inn: String
+        + segment: LowCardinality(String)
+    }
+    
+    class "dim_managers" as dim_staff <<ReplacingMergeTree>> {
+        + manager_id: UInt64 <<PK>>
+        --
+        + full_name: String
+        + department: String
+        + kpi_grade: UInt8
+    }
+}
+
+' --- СЛОЙ L3: MARTS (Витрины) ---
+package "L3: Gold Layer (Analytical Marts)" {
+    
+    class "dm_sales_report" as mart <<AggregatingMergeTree>> {
+        + report_month: Date <<PK>>
+        + category: String
+        + region: String
+        --
+        # total_revenue: AggregateFunction(sum, Decimal)
+        # total_weight: AggregateFunction(sum, Float64)
+        # avg_check: AggregateFunction(avg, Decimal)
+    }
+}
+
+' --- СВЯЗИ (SQL Logic) ---
+
+' Трансформация L1 -> L2 (Materialized View)
+raw ..> fact : <<SQL Trigger>>\nParse JSON & Insert
+
+' Связи в Звезде (JOINs)
+fact "n" -- "1" dim_prod : product_id
+fact "n" -- "1" dim_client : client_id
+fact "n" -- "1" dim_staff : manager_id
+
+' Агрегация L2 -> L3 (Materialized View)
+fact ..> mart : <<SQL Trigger>>\nGROUP BY Month, Category, Region
+
+@enduml
