@@ -1,0 +1,74 @@
+@startuml C4_Code_ETL_Flow
+!theme plain
+skinparam backgroundColor white
+skinparam linetype ortho
+
+' НАСТРОЙКИ СТИЛЯ
+skinparam activity {
+    BackgroundColor White
+    BorderColor #333333
+    ArrowColor #333333
+    FontName "Segoe UI"
+    FontSize 12
+}
+skinparam note {
+    BackgroundColor #FEF9E7
+    BorderColor #D4AC0D
+}
+
+title Диаграмма кода (C4): Алгоритм ETL-процесса (Обработка планов продаж)
+
+start
+
+:<b>Trigger: FileSystem Watcher</b>\n(Обнаружен файл "Plan_2025.xlsx");
+
+:<b>Action: Read Binary File</b>\n(Парсинг XLSX в JSON Array);
+
+if (Файл пустой или битый?) then (Да)
+    #Pink:<b>Error:</b> Отправка алерта\n"Файл не читается";
+    stop
+else (Нет)
+    :Разделение на чанки (Split In Batches)\n(по 1000 строк для оптимизации памяти);
+endif
+
+partition "Цикл обработки строки (JS Function)" {
+    :<b>Step 1: Sanitize</b>\n- Trim пробелов\n- Приведение дат к YYYY-MM-DD\n- Замена "," на "." в ценах;
+    
+    :<b>Step 2: MDM Lookup</b>\nПоиск ID товара по названию\nчерез справочник синонимов;
+}
+
+if (Товар найден в справочнике?) then (Нет)
+    :Пометить как "Unknown Product";
+    :Сохранить в лог ошибок (Quarantine);
+else (Да)
+    if (Цена < 0 или Кол-во < 0?) then (Да)
+        :Пометить как "Validation Error";
+        :Сохранить в лог ошибок (Quarantine);
+    else (Нет)
+        :<b>Step 3: Prepare Insert</b>\nФормирование SQL-запроса;
+        :Добавление в буфер записи;
+    endif
+endif
+
+:<b>Action: ClickHouse Insert</b>\n(Массовая вставка валидных строк);
+
+if (Вставка успешна?) then (Нет)
+    #Pink:<b>Error:</b> Retry Strategy\n(3 попытки с задержкой);
+    if (Все попытки неудачны?) then (Да)
+        :Critical Alert Admin;
+    else (Успех)
+        :Log Success;
+    endif
+else (Да)
+    :Перемещение файла в папку /processed;
+endif
+
+stop
+
+note right
+    <b>Логика реализована:</b>
+    - n8n Workflow (JSON)
+    - JavaScript (Function Node)
+end note
+
+@enduml
